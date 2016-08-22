@@ -15,13 +15,14 @@ import logging
 import signal
 
 
-#Importation du graphe, Du dictionnaire de communautés par noeud et des commmuanutés terrain.
-#La fonction prend un graphe, le nom du fichier terrain et le chemin du repertoire global (ex : /Users/lab/Documents/CommunityDetection/)
+#Importation of the graph, the dictionnary of the communities for each node and the ground-truth communities.
+#The function takes a graph, the name of the ground-truth file (it has to be a text file with a line for each community with
+#the node names) and the path to your global community detection repository.
 def importGraphElements(graph,GTFile,path):
     import igraph as ig
     g = ig.Graph.Read_Ncol(path+graph)
 
-    #Création d'une liste de tuples (id_node,id des communautés ou il est présent)
+    #creation of a tuple list (id_node,id of the communities he belongs to)
     groundT = path+GTFile
     nbComParNoeud={}
     nodes=set()
@@ -36,15 +37,18 @@ def importGraphElements(graph,GTFile,path):
                 nodes.add(col)
 
 
-    #Création d'un dictionnaire de correspondance nom-indice pour les noeuds
+    #Creation of a dictionnary {name :index} for the nodes.
     nomIndice={}
     for node in g.vs:
         nomIndice[node['name']]=node.index
 
     return {'g':g, 'nbComParNoeud':nbComParNoeud ,'GT':groundT,'nomIndice':nomIndice }
 
-#Fonction qui applique a un sous-graphe donne l'algorithme de detection de communaute choisi et qui renvoit un dictionnaire (communaute, liste de noeuds).
-#On doit aussi preciser le repertoire global.
+#Function that applies to a given subgraph the community detection algorithm of choice and returns a dictionnary 
+#{community id : list of nodes}.
+#The parameters are the name of the algorithm (InfoIG for igraph's infomap, FastGreedy, BigClam, CPM, InfoMap for snap's infomap),
+#The subgraph of the original graph we get from the Performance function below, the name of the  dictionnary to store the
+#results, the ath to the global repository and the path to the snap library.
 def ChoixAlgo(algo,subgraph,commClus,path,SnapPath):
 
     if algo=="InfoIG":
@@ -105,9 +109,8 @@ def ChoixAlgo(algo,subgraph,commClus,path,SnapPath):
     print 'nb de com détectées: '+ str(len(commClus))
     return commClus
 
-#fonction de calcul du fscore
+#Function to compute the F-Score
 def calculFScore(i,j):
-    #transformation des id_node de str en int
     i=[int(x) for x in i]
     j=[int(x) for x in j]
     inter=set(i).intersection(set(j))
@@ -119,29 +122,29 @@ def calculFScore(i,j):
         fscore=2*(precision*recall)/(precision+recall)
     return fscore
 
-#Recuperation du plus grand fscore entre chaque communaute detectee et chaque communaute terrain
+#We take the highest F-Score bewteen every detected community and every ground-truth community
 def loop_FScore_1(i,GT):
     res=[calculFScore(i,value) for value in GT.itervalues()]
     interMax=max(res)
     return interMax
 
-#Recuperation du plus grand fscore entre chaque communaute terrain et chaque communaute detectee
+#We take the highest F-Score bewteen every ground-truth community and every detected community
 def loop_FScore_2(i,GT,commClus):
     res=[calculFScore(i,value) for value in commClus.itervalues()]
     interMax=max(res)
     return interMax
 
-#Handler pour time out
+#Handler for the time out
 def handler(signum, frame):
     print "The algorithm is taking too much time"
     raise Exception("The Algorithm was taking too long on this subgraph - Repetition of the iteration")
 
 
 
-#Fonction d'evaluation de la performance (F-Score ou accuracy nombre de communautes) pour un alforithme (algo) sur un nombre de
-#sous-graphes donne (nbSG) dont on peut limiter la taille des sous-graphes (tailleMaxsg) et le temps de calcul par sous-graphe en
-#secondes(MaxTimeSec).Il faut preciser le repertoire global (path) ainsi que le chemin vers la librairie SNAP.
-#On obtient le Score global en sortie (moyenne sur les sous-graphes).
+#Evaluation of the performance (F-Score or accuracy in the number of communities) for an algorithm (algo) on a given number of
+#subgraphs (nbSG) with a limited size (tailleMaxsg) and computation time in seconds (MaxTimeSec) by subgraph.
+#We need a path to the global repository (path) and to the snap library. THe function returns the globlal F-Score or accuracy
+#in the number of communities (mean on all the subgraphs).
 
 
 def Performance(GraphElements,algo,nbSG,tailleMaxsg,path,SnapPath,mesure,MaxTimeSec):
@@ -218,15 +221,15 @@ def Performance(GraphElements,algo,nbSG,tailleMaxsg,path,SnapPath,mesure,MaxTime
             somme1=0
             somme2=0
 
-            #Calcul du fscore moyen pour la premiere boucle
+            #Computation of the mean F-Score for the first loop
             res=Parallel(n_jobs=12)(delayed(loop_FScore_1)(i,GT) for i in commClus.itervalues())
             fscore1=sum(res)/len(list(GT.itervalues()))
 
-            #calcul du fscore moyen sur la deuxieme boucle
+            ##Computation of the mean F-Score for the second loop
             res=Parallel(n_jobs=12)(delayed(loop_FScore_2)(k,GT,commClus) for k in GT.itervalues())
             fscore2=sum(res)/len(list(GT.itervalues()))
 
-            #calcul du fscore sur le sous-graphe
+            #Computation of the F-Score on the subgraph
             measure=(fscore1+fscore2)/2
             Score=Score+measure
             logging.info('F-Score computed on subgraph num '+str(i)+' : '+str(measure))
@@ -239,14 +242,13 @@ def Performance(GraphElements,algo,nbSG,tailleMaxsg,path,SnapPath,mesure,MaxTime
             logging.info(str(len(subgraph.vs))+' nodes - '+ str(len(subgraph.es))+' edges')
 
     end=time.time()
-    #Affichage du fscore global
+    #Printing of the results
     print "Score global :"+str(Score/nbSG)
     print "temps d'execution :"+str(end-start)
     logging.info("Total computation time :"+str(end-start))
     return Score/nbSG
 
 
-#Warning : Pour le graphe Orkut, on obtient parfois une "assertion failed" dans le code C pour certains sous-graphes (cause inconnue)
-#L'evaluation sur certains sous-graphes peut potentiellement être très longue. Ce problème est géré dans le code.
-#Pour l'indicateur de similarité du nombre de communautés, on obtient des indicateurs négatifs auxquels on additionne la valeur du moins
-#bon indicateur. On obtient donc des valeurs positives qu'on normalise entre 0 et 1.
+#Warning : It is possible to get "assertion failed" errors coming from the algorithms.
+#For the accuracy in the number of communites, we get negative results to which we add the lowest of the values.
+#We thus get postive values that we normalise between 0 and 1.
